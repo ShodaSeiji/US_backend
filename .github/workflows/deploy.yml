@@ -2,20 +2,15 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:  # 👈 これを追加
-
-name: Deploy backend to Azure Web App
-
-on:
-  push:
-    branches: [ main ]
     paths:
       - "index.js"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy.yml"
-      - "**/*.js"
+      - "*.js"
   workflow_dispatch:
+
+name: Deploy backend to Azure Web App
 
 env:
   AZURE_WEBAPP_NAME: app-kenq-4
