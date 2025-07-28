@@ -1,3 +1,5 @@
+name: Deploy backend to Azure Web App
+
 on:
   push:
     branches:
@@ -7,10 +9,9 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy.yml"
+      - "**/*.js"
       - "*.js"
   workflow_dispatch:
-
-name: Deploy backend to Azure Web App
 
 env:
   AZURE_WEBAPP_NAME: app-kenq-4
