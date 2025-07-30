@@ -1,4 +1,4 @@
-// ✅ index.js（理由1000文字・寛容なパース対応・UI整合）
+// ✅ 修正版 index.js（institutionフィルター処理をアプリ内に移動）
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
@@ -47,18 +47,19 @@ async function getEmbedding(text) {
   return response.data.data[0].embedding;
 }
 
-async function searchInAzure(vector, university) {
+async function searchInAzure(vector) {
   const url = `${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX}/docs/search?api-version=2023-10-01-Preview`;
   const headers = { "Content-Type": "application/json", "api-key": AZURE_SEARCH_API_KEY };
+
   const payload = {
-    vectorQueries: [{ kind: "vector", vector, fields: "vector", k: 20 }],
-    filter: university ? `university eq '${university}'` : undefined
+    vectorQueries: [{ kind: "vector", vector, fields: "vector", k: 100 }]
+    // ← institutionフィルターは除外
   };
+
   const response = await axios.post(url, payload, { headers });
   return response.data.value || [];
 }
 
-//#generateReason
 async function generateReason(originalQuery, doc) {
   const prompt = `
 企業からの研究ニーズ:
@@ -97,24 +98,14 @@ async function generateReason(originalQuery, doc) {
   try {
     const response = await axios.post(url, payload, { headers });
     const rawText = response.data.choices[0].message.content.trim();
-
-    // ✅ ログ：LLMの応答そのまま
-    console.log("📝 rawText (LLM Output):", rawText);
-
-    // ✅ 正規表現マッチ結果を確認
     const jsonMatch = rawText.match(/```(?:json)?\s*({[\s\S]*?})\s*```/) || rawText.match(/{[\s\S]*}/);
-    console.log("📌 jsonMatch result:", jsonMatch); 
-
     const jsonString = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : null;
-    console.log("📌 Extracted jsonString:", jsonString);
 
     if (!jsonString) {
       throw new Error("⚠️ JSON形式が見つかりませんでした");
     }
 
     const parsed = JSON.parse(jsonString);
-    console.log("✅ Parsed JSON Object:", parsed);
-
     return {
       reason_title_1: parsed.reason_title_1 || "",
       reason_body_1: parsed.reason_body_1 || "",
@@ -134,35 +125,33 @@ async function generateReason(originalQuery, doc) {
       reason_body_3: "",
     };
   }
-}  
+}
 
-// エンドポイント
 app.post("/api/search", async (req, res) => {
-  console.log("📥 POST /api/search リクエストを受信:", req.body);
   const { query, university } = req.body;
   if (!query) {
     return res.status(400).json({ error: "Missing 'query' in request body." });
   }
 
   try {
-    console.log("🔍 検索クエリ:", query);
     const englishQuery = await translateToEnglish(query);
     const embedding = await getEmbedding(englishQuery);
-    const documents = await searchInAzure(embedding, university);
+    const rawDocuments = await searchInAzure(embedding);
+
+    // 🔍 フロントから渡された university によるフィルター
+    const documents = (university && university !== "All")
+      ? rawDocuments.filter(doc => doc.institution === university)
+      : rawDocuments;
 
     const results = await Promise.all(
-      documents.map(async (doc, idx) => {
+      documents.map(async (doc) => {
         const reasonObj = await generateReason(query, doc);
-
-        // ✅ ログ出力で reasonObj を確認
-        console.log(`🧠 reasonObj [${idx}]:`, JSON.stringify(reasonObj, null, 2));
-
         return {
           name: doc.author_name || "N/A",
           institution: doc.institution || "N/A",
           orcid: doc.orcid_filled || "N/A",
           paper_count: doc.paper_count || 1,
-          ...reasonObj  // reason_title_1〜3, reason_body_1〜3を展開
+          ...reasonObj
         };
       })
     );
