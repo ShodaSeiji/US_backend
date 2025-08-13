@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "index.js"
+      - "index_v4.js"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy.yml"
@@ -15,30 +16,62 @@ on:
 
 env:
   AZURE_WEBAPP_NAME: app-kenq-4
-  NODE_VERSION: "20.x"
+  NODE_VERSION: "18.x"  # 安定版に変更
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: 🚀 Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Use Node.js
+      - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci --omit=dev
+      - name: 📦 Install dependencies
+        run: |
+          npm ci --omit=dev --prefer-offline
+          
+      - name: 🧹 Clean unnecessary files
+        run: |
+          rm -rf node_modules/.cache || true
+          rm -f *.backup *.original *.log || true
+          
+      - name: 📋 Display build info
+        run: |
+          echo "Node.js version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          echo "Package info:"
+          cat package.json
 
-      - name: Zip artifact
-        run: zip -r release.zip . -x ".git/*" ".github/*" "node_modules/.cache/*"
+      - name: 🗜️ Create deployment package
+        run: |
+          zip -r release.zip . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "node_modules/.cache/*" \
+            -x "*.backup" \
+            -x "*.original" \
+            -x "*.log" \
+            -x ".env*" \
+            -x "deploy.zip"
 
-      - name: Deploy to Azure WebApp
+      - name: 🚀 Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: release.zip
+
+      - name: ⏳ Wait for deployment
+        run: |
+          echo "Waiting for app to start (extended timeout)..."
+          sleep 120  # 2分待機
+
+      - name: 🏥 Health Check with retries
+        run: |
+          echo "Performing health check with retries..."
