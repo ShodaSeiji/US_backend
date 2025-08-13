@@ -1,1 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment
 .env
+
+# OS & IDE
+.DS_Store
+.vscode/
+
+# Temporary files
+*.tmp
+*.log
+AzureCLI.msi
+
+# Build
+dist/
+build/

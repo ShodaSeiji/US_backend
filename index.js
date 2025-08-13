@@ -1,4 +1,4 @@
-// ✅ 修正版 index.js（institutionフィルター処理をアプリ内に移動）
+// ✅ 完全修正版 index_v4.js（フィールドマッピング問題解決版）
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
@@ -11,14 +11,14 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const AZURE_SEARCH_ENDPOINT = process.env.AZURE_SEARCH_ENDPOINT;
 const AZURE_SEARCH_API_KEY = process.env.AZURE_SEARCH_API_KEY;
-const AZURE_SEARCH_INDEX = process.env.AZURE_SEARCH_INDEX_NAME || "harvard-index-v5";
+const AZURE_SEARCH_INDEX = "harvard-index-v6"; // ✅ v6インデックスに更新
 const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_OPENAI_EMBEDDING_DEPLOYMENT = process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT;
 const AZURE_OPENAI_GPT_DEPLOYMENT_NAME = process.env.AZURE_OPENAI_GPT_DEPLOYMENT_NAME;
 
 if (
-  !AZURE_SEARCH_ENDPOINT || !AZURE_SEARCH_API_KEY || !AZURE_SEARCH_INDEX ||
+  !AZURE_SEARCH_ENDPOINT || !AZURE_SEARCH_API_KEY || 
   !AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT ||
   !AZURE_OPENAI_EMBEDDING_DEPLOYMENT || !AZURE_OPENAI_GPT_DEPLOYMENT_NAME
 ) {
@@ -47,33 +47,56 @@ async function getEmbedding(text) {
   return response.data.data[0].embedding;
 }
 
-async function searchInAzure(vector) {
+async function searchInAzure(vector, university, research_field) {
   const url = `${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX}/docs/search?api-version=2023-10-01-Preview`;
   const headers = { "Content-Type": "application/json", "api-key": AZURE_SEARCH_API_KEY };
 
+  // ✅ 複数フィルターの組み合わせ
+  const filters = [];
+  if (university && university !== "All") {
+    filters.push(`institution eq '${university}'`);
+  }
+  if (research_field && research_field !== "All") {
+    filters.push(`classified_field eq '${research_field}'`);
+  }
+
   const payload = {
-    vectorQueries: [{ kind: "vector", vector, fields: "vector", k: 100 }]
-    // ← institutionフィルターは除外
+    vectorQueries: [{ kind: "vector", vector, fields: "vector", k: 100 }],
+    filter: filters.length > 0 ? filters.join(' and ') : null
   };
+
+  // filterがnullの場合は削除
+  if (!payload.filter) {
+    delete payload.filter;
+  }
 
   const response = await axios.post(url, payload, { headers });
   return response.data.value || [];
 }
 
+// ✅ generateReason関数を新しいデータ構造に対応
 async function generateReason(originalQuery, doc) {
   const prompt = `
 企業からの研究ニーズ:
 「${originalQuery}」
 
-対象研究者の論文タイトル:
+対象研究者情報:
+- 研究者名: ${doc.author_name}
+- 所属: ${doc.institution}
+- 研究分野: ${doc.classified_field}
+- 論文数: ${doc.works_count}件
+- 被引用数: ${doc.cited_by_count}回
+- h指数: ${doc.h_index}
+
+研究ポートフォリオ:
 「${doc.title}」
 
-対象研究者のアブストラクト:
+研究内容サマリー:
 「${doc.abstract}」
 
 この研究者をおすすめする理由を3点挙げてください。
 それぞれの理由について、400ワード程度で詳しく丁寧に解説してください。
-特に企業のニーズとの関連性、活用可能性、期待される効果について言及してください。
+特に企業のニーズとの関連性、研究実績の豊富さ、活用可能性、期待される効果について言及してください。
 
 以下のフォーマットでJSON形式で出力してください。
 
@@ -127,42 +150,133 @@ async function generateReason(originalQuery, doc) {
   }
 }
 
+// ✅ メインAPIエンドポイント（デバッグ強化版）
 app.post("/api/search", async (req, res) => {
-  const { query, university } = req.body;
+  const { query, university, research_field } = req.body;
   if (!query) {
     return res.status(400).json({ error: "Missing 'query' in request body." });
   }
 
   try {
+    console.log(`🔍 検索開始: "${query}", 所属フィルター: "${university || 'All'}", 分野フィルター: "${research_field || 'All'}"`);
+    
     const englishQuery = await translateToEnglish(query);
+    console.log(`🔤 英訳: "${englishQuery}"`);
+    
     const embedding = await getEmbedding(englishQuery);
-    const rawDocuments = await searchInAzure(embedding);
+    console.log(`📊 Embedding生成完了: ${embedding.length}次元`);
+    
+    const documents = await searchInAzure(embedding, university, research_field);
+    console.log(`📋 検索結果: ${documents.length}件`);
 
-    // 🔍 フロントから渡された university によるフィルター
-    const documents = (university && university !== "All")
-      ? rawDocuments.filter(doc => doc.institution === university)
-      : rawDocuments;
+    // ✅ デバッグ: 最初の結果を詳細ログ出力
+    if (documents.length > 0) {
+      console.log("🔍 最初の検索結果詳細:");
+      const firstDoc = documents[0];
+      console.log("- author_name:", firstDoc.author_name);
+      console.log("- works_count:", firstDoc.works_count, typeof firstDoc.works_count);
+      console.log("- cited_by_count:", firstDoc.cited_by_count, typeof firstDoc.cited_by_count);
+      console.log("- h_index:", firstDoc.h_index, typeof firstDoc.h_index);
+      console.log("- institution:", firstDoc.institution);
+      console.log("- classified_field:", firstDoc.classified_field);
+    }
 
     const results = await Promise.all(
       documents.map(async (doc) => {
         const reasonObj = await generateReason(query, doc);
-        return {
+        
+        // ✅ フィールドマッピングを厳密に修正
+        const result = {
           name: doc.author_name || "N/A",
           institution: doc.institution || "N/A",
           orcid: doc.orcid_filled || "N/A",
-          paper_count: doc.paper_count || 1,
+          
+          // ✅ 数値フィールドの安全な変換
+          works_count: typeof doc.works_count === 'number' ? doc.works_count : 
+                      (typeof doc.works_count === 'string' ? parseInt(doc.works_count) || 0 : 0),
+          cited_by_count: typeof doc.cited_by_count === 'number' ? doc.cited_by_count : 
+                         (typeof doc.cited_by_count === 'string' ? parseInt(doc.cited_by_count) || 0 : 0),
+          h_index: typeof doc.h_index === 'number' ? doc.h_index : 
+                  (typeof doc.h_index === 'string' ? parseInt(doc.h_index) || 0 : 0),
+          
+          classified_field: doc.classified_field || "Unknown",
+          paper_data_count: typeof doc.paper_data_count === 'number' ? doc.paper_data_count : 
+                           (typeof doc.paper_data_count === 'string' ? parseInt(doc.paper_data_count) || 0 : 0),
+          
+          // ✅ レガシー対応（フロントエンドがpaper_countを期待している場合）
+          paper_count: typeof doc.works_count === 'number' ? doc.works_count : 
+                      (typeof doc.works_count === 'string' ? parseInt(doc.works_count) || 0 : 0),
+          
           ...reasonObj
         };
+
+        // ✅ デバッグ: 変換後の値をログ出力
+        console.log(`📊 ${doc.author_name} の変換後データ:`, {
+          works_count: result.works_count,
+          cited_by_count: result.cited_by_count,
+          h_index: result.h_index,
+          paper_count: result.paper_count
+        });
+
+        return result;
       })
     );
 
+    console.log(`✅ レスポンス生成完了: ${results.length}件`);
+    
+    // ✅ レスポンス前に最終確認
+    if (results.length > 0) {
+      console.log("🎯 最終レスポンス（最初の1件）:", {
+        name: results[0].name,
+        works_count: results[0].works_count,
+        cited_by_count: results[0].cited_by_count,
+        h_index: results[0].h_index
+      });
+    }
+    
     res.json(results);
+    
   } catch (err) {
     console.error("❌ サーバーエラー:", err.response?.data || err.message);
-    res.status(500).json({ error: "Internal server error." });
+    res.status(500).json({ 
+      error: "Internal server error.",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// ✅ ヘルスチェックエンドポイント
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "healthy", 
+    index: AZURE_SEARCH_INDEX,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ✅ インデックス情報エンドポイント（デバッグ用）
+app.get("/api/index-info", async (req, res) => {
+  try {
+    const url = `${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX}?api-version=2023-10-01-Preview`;
+    const headers = { "api-key": AZURE_SEARCH_API_KEY };
+    
+    const response = await axios.get(url, { headers });
+    const indexInfo = response.data;
+    
+    res.json({
+      name: indexInfo.name,
+      fields: indexInfo.fields?.length || 0,
+      fieldNames: indexInfo.fields?.map(f => f.name) || [],
+      vectorFields: indexInfo.fields?.filter(f => f.type === "Collection(Edm.Single)").length || 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get index info" });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📍 Using index: ${AZURE_SEARCH_INDEX}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🔍 Index info: http://localhost:${PORT}/api/index-info`);
 });
