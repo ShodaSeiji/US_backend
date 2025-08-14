@@ -1,5 +1,5 @@
-// 🎯 研究者データ集約完全ソリューション（理由生成改善版）
-console.log("🚀 Harvard Researcher Matching API - Enhanced Reason Generation v3.1.0");
+// 🎯 研究者データ集約完全ソリューション（多言語対応版）
+console.log("🚀 Harvard Researcher Matching API - Multilingual Enhanced v3.2.0");
 
 require("dotenv").config();
 const express = require("express");
@@ -22,7 +22,7 @@ const AZURE_OPENAI_GPT_DEPLOYMENT_NAME = process.env.AZURE_OPENAI_GPT_DEPLOYMENT
 console.log("🔧 Environment check:");
 console.log("- Azure Search:", !!AZURE_SEARCH_ENDPOINT);
 console.log("- Azure OpenAI:", !!AZURE_OPENAI_ENDPOINT);
-console.log("🎯 Feature: Research data aggregation by author + Enhanced AI reasoning");
+console.log("🎯 Feature: Research data aggregation by author + Multilingual AI reasoning");
 
 // ✅ 翻訳機能
 async function translateToEnglish(query) {
@@ -274,14 +274,99 @@ function formatAggregatedResearcherData(doc) {
   return result;
 }
 
-// ✅ AI理由生成（大幅改善版 - 詳細な理由生成）
-async function generateReason(query, doc) {
+// ✅ AI理由生成（多言語対応版 - 詳細な理由生成）
+async function generateReason(query, doc, language = 'ja') {
   if (!AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT) {
-    return getEnhancedDefaultReasons(query, doc);
+    return getEnhancedDefaultReasons(query, doc, language);
   }
 
   try {
-    const prompt = `
+    const prompt = language === 'en' ? 
+      getEnglishPrompt(query, doc) : 
+      getJapanesePrompt(query, doc);
+
+    const url = `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_GPT_DEPLOYMENT_NAME}/chat/completions?api-version=2024-02-15-preview`;
+    const headers = { "Content-Type": "application/json", "api-key": AZURE_OPENAI_API_KEY };
+    const payload = {
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 3000,
+      top_p: 0.9,
+      frequency_penalty: 0.0,
+      presence_penalty: 0.0
+    };
+
+    const response = await axios.post(url, payload, { headers, timeout: 30000 });
+    const rawText = response.data.choices[0].message.content.trim();
+    
+    const jsonMatch = rawText.match(/```(?:json)?\s*({[\s\S]*?})\s*```/) || rawText.match(/{[\s\S]*}/);
+    const jsonString = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : null;
+
+    if (!jsonString) {
+      throw new Error("JSON形式が見つかりませんでした");
+    }
+
+    const parsed = JSON.parse(jsonString);
+    console.log(`💡 AI理由生成完了: ${doc.name} (${language === 'en' ? 'English' : '日本語'}版)`);
+    
+    return {
+      reason_title_1: parsed.reason_title_1 || "",
+      reason_body_1: parsed.reason_body_1 || "",
+      reason_title_2: parsed.reason_title_2 || "",
+      reason_body_2: parsed.reason_body_2 || "",
+      reason_title_3: parsed.reason_title_3 || "",
+      reason_body_3: parsed.reason_body_3 || ""
+    };
+    
+  } catch (error) {
+    console.error("❌ AI reason generation error:", error.message);
+    return getEnhancedDefaultReasons(query, doc, language);
+  }
+}
+
+// ✅ 英語プロンプト
+function getEnglishPrompt(query, doc) {
+  return `
+Corporate Research Needs:
+"${query}"
+
+Target Researcher Information:
+- Researcher Name: ${doc.name}
+- Institution: ${doc.institution}
+- Research Field: ${doc.classified_field}
+- Number of Papers: ${doc.paper_count} papers
+- Citations: ${doc.cited_by_count} times
+- h-index: ${doc.h_index}
+
+Please provide 3 detailed reasons why this researcher is recommended for the corporate research needs from the following perspectives:
+
+1. Relevance between corporate needs and researcher's expertise (Title: ~20 words + Body: ~500 words)
+2. Research achievements and specialized strengths (Title: ~20 words + Body: ~500 words)
+3. Expected effects and outcomes (Title: ~20 words + Body: ~500 words)
+
+For each reason, please include detailed descriptions covering:
+- Specific relevance to corporate needs
+- Rich research experience and qualitative evaluation
+- Potential for practical application and commercialization
+- Expected specific effects and outcomes
+- Value proposition for collaborative research
+
+Please output in the following JSON format (each body should be 400-600 words with detailed descriptions):
+
+{
+  "reason_title_1": "Specific title showing high relevance to corporate needs",
+  "reason_body_1": "Detailed explanation about the relevance between corporate needs and researcher's expertise, including specific research content, applicability, and approaches to solving corporate challenges (500 words)",
+  "reason_title_2": "Title representing research achievements and specialized strengths",
+  "reason_body_2": "Detailed analysis of quantitative achievements such as paper count, citations, h-index, qualitative evaluation, research field position, international recognition, past achievements (500 words)",
+  "reason_title_3": "Title of expected specific effects and outcomes",
+  "reason_body_3": "Detailed explanation of specific outcomes expected from collaborative research, technology transfer potential, commercialization pathways, competitive advantages for corporations, market impact (500 words)"
+}
+`;
+}
+
+// ✅ 日本語プロンプト
+function getJapanesePrompt(query, doc) {
+  return `
 企業からの研究ニーズ:
 「${query}」
 
@@ -317,70 +402,29 @@ async function generateReason(query, doc) {
   "reason_body_3": "共同研究により期待される具体的な成果、技術移転の可能性、商業化への道筋、企業にもたらされる競争優位性、市場への影響等を詳細に説明（500ワード程度）"
 }
 `;
+}
 
-    const url = `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${AZURE_OPENAI_GPT_DEPLOYMENT_NAME}/chat/completions?api-version=2024-02-15-preview`;
-    const headers = { "Content-Type": "application/json", "api-key": AZURE_OPENAI_API_KEY };
-    const payload = {
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-      max_tokens: 3000,  // ✅ 大幅に増加（1000 → 3000）
-      top_p: 0.9,
-      frequency_penalty: 0.0,
-      presence_penalty: 0.0
-    };
-
-    const response = await axios.post(url, payload, { headers, timeout: 30000 }); // ✅ タイムアウトも延長
-    const rawText = response.data.choices[0].message.content.trim();
-    
-    const jsonMatch = rawText.match(/```(?:json)?\s*({[\s\S]*?})\s*```/) || rawText.match(/{[\s\S]*}/);
-    const jsonString = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : null;
-
-    if (!jsonString) {
-      throw new Error("JSON形式が見つかりませんでした");
-    }
-
-    const parsed = JSON.parse(jsonString);
-    console.log(`💡 AI理由生成完了: ${doc.name} (詳細版)`);
-    
+// ✅ 強化版デフォルト理由生成（多言語対応）
+function getEnhancedDefaultReasons(query, doc, language = 'ja') {
+  if (language === 'en') {
     return {
-      reason_title_1: parsed.reason_title_1 || "",
-      reason_body_1: parsed.reason_body_1 || "",
-      reason_title_2: parsed.reason_title_2 || "",
-      reason_body_2: parsed.reason_body_2 || "",
-      reason_title_3: parsed.reason_title_3 || "",
-      reason_body_3: parsed.reason_body_3 || ""
+      reason_title_1: `High Expertise in "${query}" Field and Strategic Alignment with Corporate Needs`,
+      reason_body_1: `Dr. ${doc.name}'s research domain demonstrates exceptional alignment with corporate challenges in "${query}". With ${doc.paper_count} published papers, this researcher has developed systematic and comprehensive academic insights through continuous research activities, building extensive knowledge spanning from theory to practice. The expertise in ${doc.classified_field} serves as a valuable resource for addressing complex challenges such as digital transformation, sustainability, and innovation creation that modern corporations face. In collaborative research with corporations, comprehensive support is expected from fundamental understanding of existing business challenges to proposing innovative approaches utilizing latest research findings and formulating specific roadmaps for implementation.`,
+      reason_title_2: `International Research Impact and Academic Excellence Proven by ${doc.cited_by_count} Citations`,
+      reason_body_2: `Dr. ${doc.name}'s research demonstrates high-quality outcomes that are internationally recognized and widely referenced in the global academic community, as evidenced by ${doc.cited_by_count} citations. The h-index of ${doc.h_index} objectively indicates not only high publication volume but also quality and impact of individual research, establishing a position as a leading researcher in the ${doc.classified_field} field. Such achievements suggest potential to not only conduct contract research but also enhance corporate R&D strategies and improve international competitiveness in collaborative research with corporations.`,
+      reason_title_3: `Technology Innovation and Sustainable Competitive Advantage Creation through Industry-Academia Collaboration`,
+      reason_body_3: `Collaborative research with Dr. ${doc.name} is expected to build strategic partnerships that contribute to establishing long-term competitive advantages rather than mere one-time technology development. By integrating cutting-edge academic insights with practical corporate needs, innovative solutions can be developed that serve as differentiation factors in existing markets and provide first-mover advantages in new markets. The expertise in "${query}" enables valuable advice for medium to long-term technology roadmaps and strategic investment decisions for next-generation technologies.`
     };
-    
-  } catch (error) {
-    console.error("❌ AI reason generation error:", error.message);
-    return getEnhancedDefaultReasons(query, doc);
+  } else {
+    return {
+      reason_title_1: `「${query}」分野における高度な専門性と企業ニーズとの戦略的適合性`,
+      reason_body_1: `${doc.name}博士の研究領域は、「${query}」に関する企業の課題解決に直接的に貢献できる高度な専門性を有しています。${doc.paper_count}件の論文実績が示すように、継続的かつ体系的な研究活動を通じて深い学術的知見を蓄積しており、理論から実践までの幅広い知識基盤を構築しています。特に${doc.classified_field}分野での専門性は、現代企業が直面するデジタル変革、持続可能性、イノベーション創出などの複合的課題に対して、学術的根拠に基づいた解決策を提供できる貴重な資源です。企業との共同研究においては、既存の事業課題の本質的理解から始まり、最新の研究成果を活用した革新的アプローチの提案、そして実装に向けた具体的なロードマップの策定まで、包括的な支援が期待できます。`,
+      reason_title_2: `${doc.cited_by_count}回の被引用実績が証明する国際的研究影響力と学術的卓越性`,
+      reason_body_2: `${doc.name}博士の研究は、${doc.cited_by_count}回という被引用数が示すように、国際的な学術コミュニティにおいて高く評価され、広く参照されている質の高い成果を継続的に産出しています。h指数${doc.h_index}は、単に論文数が多いだけでなく、個々の研究の影響力と質を兼ね備えていることを客観的に示しており、この数値は${doc.classified_field}分野における第一線の研究者としての地位を確立していることを意味します。このような実績は、企業との共同研究において、単なる受託研究にとどまらず、企業の研究開発戦略そのものを高度化し、国際競争力を向上させる原動力となることが期待できます。また、豊富な研究経験と実績に基づく深い洞察力により、企業が見落としがちな潜在的課題の発見や、従来のアプローチでは解決困難な問題に対する革新的解決策の提案が可能です。`,
+      reason_title_3: `産学連携による技術革新と持続可能な競争優位性の創出可能性`,
+      reason_body_3: `${doc.name}博士との共同研究は、単発的な技術開発にとどまらず、企業の長期的な競争優位性確立に寄与する戦略的パートナーシップの構築が期待できます。学術研究の最前線で培われた知見と企業の実践的ニーズを融合させることで、既存の市場においては差別化要因となり、新規市場においては先行者利益を獲得できる革新的ソリューションの開発が可能となります。特に「${query}」領域における最新の研究動向と将来展望に精通していることから、中長期的な技術ロードマップの策定や、次世代技術への戦略的投資判断において貴重な助言を得ることができます。さらに、${doc.institution}という世界トップクラスの研究機関における研究環境と人的ネットワークを活用することで、グローバルな研究コラボレーションの機会創出や、国際的な技術標準化活動への参画など、企業単独では困難な戦略的活動への道筋も開かれることが期待されます。`
+    };
   }
-}
-
-// ✅ 強化版デフォルト理由生成
-function getEnhancedDefaultReasons(query, doc) {
-  return {
-    reason_title_1: `「${query}」分野における高度な専門性と企業ニーズとの戦略的適合性`,
-    reason_body_1: `${doc.name}博士の研究領域は、「${query}」に関する企業の課題解決に直接的に貢献できる高度な専門性を有しています。${doc.paper_count}件の論文実績が示すように、継続的かつ体系的な研究活動を通じて深い学術的知見を蓄積しており、理論から実践までの幅広い知識基盤を構築しています。特に${doc.classified_field}分野での専門性は、現代企業が直面するデジタル変革、持続可能性、イノベーション創出などの複合的課題に対して、学術的根拠に基づいた解決策を提供できる貴重な資源です。企業との共同研究においては、既存の事業課題の本質的理解から始まり、最新の研究成果を活用した革新的アプローチの提案、そして実装に向けた具体的なロードマップの策定まで、包括的な支援が期待できます。`,
-    
-    reason_title_2: `${doc.cited_by_count}回の被引用実績が証明する国際的研究影響力と学術的卓越性`,
-    reason_body_2: `${doc.name}博士の研究は、${doc.cited_by_count}回という被引用数が示すように、国際的な学術コミュニティにおいて高く評価され、広く参照されている質の高い成果を継続的に産出しています。h指数${doc.h_index}は、単に論文数が多いだけでなく、個々の研究の影響力と質を兼ね備えていることを客観的に示しており、この数値は${doc.classified_field}分野における第一線の研究者としての地位を確立していることを意味します。このような実績は、企業との共同研究において、単なる受託研究にとどまらず、企業の研究開発戦略そのものを高度化し、国際競争力を向上させる原動力となることが期待できます。また、豊富な研究経験と実績に基づく深い洞察力により、企業が見落としがちな潜在的課題の発見や、従来のアプローチでは解決困難な問題に対する革新的解決策の提案が可能です。`,
-    
-    reason_title_3: `産学連携による技術革新と持続可能な競争優位性の創出可能性`,
-    reason_body_3: `${doc.name}博士との共同研究は、単発的な技術開発にとどまらず、企業の長期的な競争優位性確立に寄与する戦略的パートナーシップの構築が期待できます。学術研究の最前線で培われた知見と企業の実践的ニーズを融合させることで、既存の市場においては差別化要因となり、新規市場においては先行者利益を獲得できる革新的ソリューションの開発が可能となります。特に「${query}」領域における最新の研究動向と将来展望に精通していることから、中長期的な技術ロードマップの策定や、次世代技術への戦略的投資判断において貴重な助言を得ることができます。さらに、${doc.institution}という世界トップクラスの研究機関における研究環境と人的ネットワークを活用することで、グローバルな研究コラボレーションの機会創出や、国際的な技術標準化活動への参画など、企業単独では困難な戦略的活動への道筋も開かれることが期待されます。`
-  };
-}
-
-// ✅ レガシー対応として既存のgetDefaultReasonsも保持（短縮版）
-function getDefaultReasons(query, doc) {
-  return {
-    reason_title_1: "豊富な研究実績",
-    reason_body_1: `${doc.name}博士は${doc.paper_count}件の論文と${doc.cited_by_count}回の被引用実績を持ち、「${query}」分野での深い専門知識を有しています。企業の研究ニーズに応える十分な経験と知識を備えた研究者です。`,
-    reason_title_2: "高い学術的影響力", 
-    reason_body_2: `h指数${doc.h_index}が示すように、国際的に認められた研究者であり、研究成果の質と影響力が証明されています。企業との共同研究において、高い価値を提供することが期待できます。`,
-    reason_title_3: "専門分野との適合性",
-    reason_body_3: `${doc.classified_field}分野での専門性を活かし、「${query}」に関する実用的なソリューション開発に貢献できる理想的な研究パートナーです。理論と実践の両面でサポートが可能です。`
-  };
 }
 
 // ===== API エンドポイント =====
@@ -388,15 +432,16 @@ function getDefaultReasons(query, doc) {
 app.get("/", (req, res) => {
   res.status(200).json({ 
     status: "Server is running", 
-    message: "Harvard Researcher Matching API - Enhanced Reason Generation",
+    message: "Harvard Researcher Matching API - Multilingual Enhanced Reason Generation",
     timestamp: new Date().toISOString(),
-    version: "3.1.0",
+    version: "3.2.0",
     features: [
       "Research data aggregation by author",
-      "Enhanced AI reason generation (500+ words per reason)",
-      "Improved prompting for detailed explanations"
+      "Multilingual AI reason generation (Japanese/English)",
+      "Enhanced prompting for detailed explanations",
+      "International user support"
     ],
-    description: "Aggregates multiple CSV rows per researcher into single author records with enhanced reasoning"
+    description: "Aggregates multiple CSV rows per researcher into single author records with multilingual reasoning"
   });
 });
 
@@ -404,12 +449,13 @@ app.get("/api/health", (req, res) => {
   res.status(200).json({ 
     status: "healthy", 
     timestamp: new Date().toISOString(),
-    version: "3.1.0",
+    version: "3.2.0",
     index: AZURE_SEARCH_INDEX,
     features: [
       "Data aggregation enabled",
-      "Enhanced reason generation with 3000 max_tokens",
-      "Detailed 500-word explanations per reason"
+      "Multilingual reason generation (Japanese/English)",
+      "Enhanced 500-word explanations per reason",
+      "International UI support"
     ]
   });
 });
@@ -432,23 +478,26 @@ app.get("/api/env-check", (req, res) => {
     searchIndex: AZURE_SEARCH_INDEX,
     dataModel: {
       input: "CSV rows per paper",
-      processing: "Aggregate by author_name + Enhanced AI reasoning",
-      output: "Author-level statistics with detailed 500-word reasons"
+      processing: "Aggregate by author_name + Multilingual AI reasoning",
+      output: "Author-level statistics with detailed multilingual reasons"
     }
   });
 });
 
-// ✅ メイン検索エンドポイント（集約対応版）
+// ✅ メイン検索エンドポイント（多言語対応版）
 app.post("/api/search", async (req, res) => {
-  console.log("🔍 Enhanced aggregated search endpoint called");
-  const { query, university, research_field } = req.body;
+  console.log("🔍 Multilingual enhanced aggregated search endpoint called");
+  const { query, university, research_field, language = 'ja' } = req.body;
   
   if (!query || query.trim() === "") {
-    return res.status(400).json({ error: "研究トピックを入力してください" });
+    const errorMsg = language === 'en' ? 
+      "Please enter a research topic" : 
+      "研究トピックを入力してください";
+    return res.status(400).json({ error: errorMsg });
   }
 
   try {
-    console.log(`🔍 詳細理由生成版検索開始: "${query}"`);
+    console.log(`🔍 多言語詳細理由生成版検索開始: "${query}" (${language})`);
     console.log(`   - 所属フィルター: "${university || 'All'}"`);
     console.log(`   - 分野フィルター: "${research_field || 'All'}"`);
     
@@ -466,16 +515,16 @@ app.post("/api/search", async (req, res) => {
       return res.status(200).json([]);
     }
 
-    // Step 4: データ整形 + AI理由生成（詳細版）
+    // Step 4: データ整形 + AI理由生成（多言語版）
     const results = await Promise.all(
       aggregatedDocuments.slice(0, 10).map(async (doc) => {
         const formatted = formatAggregatedResearcherData(doc);
-        const reasons = await generateReason(query, formatted);
+        const reasons = await generateReason(query, formatted, language);
         return { ...formatted, ...reasons };
       })
     );
 
-    console.log(`✅ 詳細理由生成版検索完了: ${results.length}件の研究者`);
+    console.log(`✅ 多言語詳細理由生成版検索完了: ${results.length}件の研究者`);
     
     // 結果確認
     results.forEach((result, index) => {
@@ -490,9 +539,12 @@ app.post("/api/search", async (req, res) => {
     res.status(200).json(results);
     
   } catch (error) {
-    console.error("❌ 詳細理由生成版検索エラー:", error);
+    console.error("❌ 多言語詳細理由生成版検索エラー:", error);
+    const errorMsg = language === 'en' ? 
+      "An error occurred during search" : 
+      "検索中にエラーが発生しました";
     res.status(500).json({ 
-      error: "検索中にエラーが発生しました",
+      error: errorMsg,
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -508,11 +560,12 @@ app.use((err, req, res, next) => {
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Enhanced Reason Generation Server started on port ${PORT}`);
-  console.log(`🎯 Features: Data aggregation + Enhanced AI reasoning (500+ words per reason)`);
-  console.log(`📊 Data flow: CSV rows → Author grouping → Detailed aggregated metrics + AI reasons`);
+  console.log(`✅ Multilingual Enhanced Reason Generation Server started on port ${PORT}`);
+  console.log(`🎯 Features: Data aggregation + Multilingual AI reasoning (Japanese/English)`);
+  console.log(`📊 Data flow: CSV rows → Author grouping → Detailed aggregated metrics + Multilingual AI reasons`);
   console.log(`📋 Index: ${AZURE_SEARCH_INDEX}`);
-  console.log(`💡 AI: Enhanced reasoning with 3000 max_tokens for detailed explanations`);
+  console.log(`💡 AI: Enhanced reasoning with 3000 max_tokens for detailed multilingual explanations`);
+  console.log(`🌐 Languages: Japanese (ja) / English (en)`);
 });
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
