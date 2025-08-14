@@ -1,5 +1,5 @@
-// 🎯 研究者データ集約完全ソリューション
-console.log("🚀 Harvard Researcher Matching API - Aggregated Data Solution");
+// 🎯 研究者データ集約完全ソリューション（理由生成改善版）
+console.log("🚀 Harvard Researcher Matching API - Enhanced Reason Generation v3.1.0");
 
 require("dotenv").config();
 const express = require("express");
@@ -19,10 +19,10 @@ const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_OPENAI_EMBEDDING_DEPLOYMENT = process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT;
 const AZURE_OPENAI_GPT_DEPLOYMENT_NAME = process.env.AZURE_OPENAI_GPT_DEPLOYMENT_NAME;
 
-console.log("🔍 Environment check:");
+console.log("🔧 Environment check:");
 console.log("- Azure Search:", !!AZURE_SEARCH_ENDPOINT);
 console.log("- Azure OpenAI:", !!AZURE_OPENAI_ENDPOINT);
-console.log("🎯 Feature: Research data aggregation by author");
+console.log("🎯 Feature: Research data aggregation by author + Enhanced AI reasoning");
 
 // ✅ 翻訳機能
 async function translateToEnglish(query) {
@@ -75,13 +75,13 @@ async function getEmbedding(text) {
   }
 
   // フォールバック
-  console.log("🔄 フォールバック embedding");
+  console.log("📄 フォールバック embedding");
   return new Array(3072).fill(0).map(() => Math.random() - 0.5);
 }
 
 // 🎯 研究者データ集約関数
 function aggregateResearcherData(rawResults) {
-  console.log(`🔄 研究者データ集約開始: ${rawResults.length}件の生データ`);
+  console.log(`📄 研究者データ集約開始: ${rawResults.length}件の生データ`);
   
   // author_name でグループ化
   const groupedByAuthor = {};
@@ -274,10 +274,10 @@ function formatAggregatedResearcherData(doc) {
   return result;
 }
 
-// ✅ AI理由生成
+// ✅ AI理由生成（大幅改善版 - 詳細な理由生成）
 async function generateReason(query, doc) {
   if (!AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT) {
-    return getDefaultReasons(query, doc);
+    return getEnhancedDefaultReasons(query, doc);
   }
 
   try {
@@ -293,19 +293,28 @@ async function generateReason(query, doc) {
 - 被引用数: ${doc.cited_by_count}回
 - h指数: ${doc.h_index}
 
-この研究者をおすすめする理由を3点挙げてください。
-それぞれの理由について、1200ワード程度で詳しく丁寧に解説してください。
-特に企業のニーズとの関連性、研究実績の豊富さ、活用可能性、期待される効果について言及してください。
+この研究者をおすすめする理由を以下の3つの観点から詳しく説明してください：
 
-以下のフォーマットでJSON形式で出力してください。
+1. 企業ニーズと研究者の関連性（見出し20ワード程度 + 本文500ワード程度）
+2. 研究者の実績や強みなど特徴の説明（見出し20ワード程度 + 本文500ワード程度）  
+3. 期待される効果・成果（見出し20ワード程度 + 本文500ワード程度）
+
+各理由について、以下の要素を含めて詳細に記述してください：
+- 企業のニーズとの具体的な関連性
+- 研究実績の豊富さと質的評価
+- 実用化・商業化への活用可能性
+- 期待される具体的な効果と成果
+- 共同研究における価値提案
+
+以下のJSON形式で出力してください（各本文は400-600ワードで詳細に記述）：
 
 {
-  "reason_title_1": "...",
-  "reason_body_1": "...",
-  "reason_title_2": "...",
-  "reason_body_2": "...",
-  "reason_title_3": "...",
-  "reason_body_3": "..."
+  "reason_title_1": "企業ニーズとの高い関連性を示す具体的なタイトル",
+  "reason_body_1": "企業ニーズと研究者の専門分野の関連性について、具体的な研究内容、応用可能性、企業が抱える課題への解決アプローチを詳細に説明する長文（500ワード程度）",
+  "reason_title_2": "研究実績と専門性の強みを表すタイトル", 
+  "reason_body_2": "研究者の論文数、被引用数、h指数等の定量的実績と、その質的評価、研究分野での地位、国際的な認知度、過去の成果等を詳細に分析した説明（500ワード程度）",
+  "reason_title_3": "期待される具体的な効果と成果のタイトル",
+  "reason_body_3": "共同研究により期待される具体的な成果、技術移転の可能性、商業化への道筋、企業にもたらされる競争優位性、市場への影響等を詳細に説明（500ワード程度）"
 }
 `;
 
@@ -314,10 +323,13 @@ async function generateReason(query, doc) {
     const payload = {
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
-      max_tokens: 1000
+      max_tokens: 3000,  // ✅ 大幅に増加（1000 → 3000）
+      top_p: 0.9,
+      frequency_penalty: 0.0,
+      presence_penalty: 0.0
     };
 
-    const response = await axios.post(url, payload, { headers, timeout: 15000 });
+    const response = await axios.post(url, payload, { headers, timeout: 30000 }); // ✅ タイムアウトも延長
     const rawText = response.data.choices[0].message.content.trim();
     
     const jsonMatch = rawText.match(/```(?:json)?\s*({[\s\S]*?})\s*```/) || rawText.match(/{[\s\S]*}/);
@@ -328,7 +340,7 @@ async function generateReason(query, doc) {
     }
 
     const parsed = JSON.parse(jsonString);
-    console.log(`💡 AI理由生成完了: ${doc.name}`);
+    console.log(`💡 AI理由生成完了: ${doc.name} (詳細版)`);
     
     return {
       reason_title_1: parsed.reason_title_1 || "",
@@ -341,16 +353,30 @@ async function generateReason(query, doc) {
     
   } catch (error) {
     console.error("❌ AI reason generation error:", error.message);
-    return getDefaultReasons(query, doc);
+    return getEnhancedDefaultReasons(query, doc);
   }
 }
 
-// ✅ デフォルト理由生成
+// ✅ 強化版デフォルト理由生成
+function getEnhancedDefaultReasons(query, doc) {
+  return {
+    reason_title_1: `「${query}」分野における高度な専門性と企業ニーズとの戦略的適合性`,
+    reason_body_1: `${doc.name}博士の研究領域は、「${query}」に関する企業の課題解決に直接的に貢献できる高度な専門性を有しています。${doc.paper_count}件の論文実績が示すように、継続的かつ体系的な研究活動を通じて深い学術的知見を蓄積しており、理論から実践までの幅広い知識基盤を構築しています。特に${doc.classified_field}分野での専門性は、現代企業が直面するデジタル変革、持続可能性、イノベーション創出などの複合的課題に対して、学術的根拠に基づいた解決策を提供できる貴重な資源です。企業との共同研究においては、既存の事業課題の本質的理解から始まり、最新の研究成果を活用した革新的アプローチの提案、そして実装に向けた具体的なロードマップの策定まで、包括的な支援が期待できます。`,
+    
+    reason_title_2: `${doc.cited_by_count}回の被引用実績が証明する国際的研究影響力と学術的卓越性`,
+    reason_body_2: `${doc.name}博士の研究は、${doc.cited_by_count}回という被引用数が示すように、国際的な学術コミュニティにおいて高く評価され、広く参照されている質の高い成果を継続的に産出しています。h指数${doc.h_index}は、単に論文数が多いだけでなく、個々の研究の影響力と質を兼ね備えていることを客観的に示しており、この数値は${doc.classified_field}分野における第一線の研究者としての地位を確立していることを意味します。このような実績は、企業との共同研究において、単なる受託研究にとどまらず、企業の研究開発戦略そのものを高度化し、国際競争力を向上させる原動力となることが期待できます。また、豊富な研究経験と実績に基づく深い洞察力により、企業が見落としがちな潜在的課題の発見や、従来のアプローチでは解決困難な問題に対する革新的解決策の提案が可能です。`,
+    
+    reason_title_3: `産学連携による技術革新と持続可能な競争優位性の創出可能性`,
+    reason_body_3: `${doc.name}博士との共同研究は、単発的な技術開発にとどまらず、企業の長期的な競争優位性確立に寄与する戦略的パートナーシップの構築が期待できます。学術研究の最前線で培われた知見と企業の実践的ニーズを融合させることで、既存の市場においては差別化要因となり、新規市場においては先行者利益を獲得できる革新的ソリューションの開発が可能となります。特に「${query}」領域における最新の研究動向と将来展望に精通していることから、中長期的な技術ロードマップの策定や、次世代技術への戦略的投資判断において貴重な助言を得ることができます。さらに、${doc.institution}という世界トップクラスの研究機関における研究環境と人的ネットワークを活用することで、グローバルな研究コラボレーションの機会創出や、国際的な技術標準化活動への参画など、企業単独では困難な戦略的活動への道筋も開かれることが期待されます。`
+  };
+}
+
+// ✅ レガシー対応として既存のgetDefaultReasonsも保持（短縮版）
 function getDefaultReasons(query, doc) {
   return {
     reason_title_1: "豊富な研究実績",
     reason_body_1: `${doc.name}博士は${doc.paper_count}件の論文と${doc.cited_by_count}回の被引用実績を持ち、「${query}」分野での深い専門知識を有しています。企業の研究ニーズに応える十分な経験と知識を備えた研究者です。`,
-    reason_title_2: "高い学術的影響力",
+    reason_title_2: "高い学術的影響力", 
     reason_body_2: `h指数${doc.h_index}が示すように、国際的に認められた研究者であり、研究成果の質と影響力が証明されています。企業との共同研究において、高い価値を提供することが期待できます。`,
     reason_title_3: "専門分野との適合性",
     reason_body_3: `${doc.classified_field}分野での専門性を活かし、「${query}」に関する実用的なソリューション開発に貢献できる理想的な研究パートナーです。理論と実践の両面でサポートが可能です。`
@@ -362,11 +388,15 @@ function getDefaultReasons(query, doc) {
 app.get("/", (req, res) => {
   res.status(200).json({ 
     status: "Server is running", 
-    message: "Harvard Researcher Matching API - Aggregated Data Solution",
+    message: "Harvard Researcher Matching API - Enhanced Reason Generation",
     timestamp: new Date().toISOString(),
-    version: "3.0.0",
-    feature: "Research data aggregation by author (CSV row-level → Author-level)",
-    description: "Aggregates multiple CSV rows per researcher into single author records"
+    version: "3.1.0",
+    features: [
+      "Research data aggregation by author",
+      "Enhanced AI reason generation (500+ words per reason)",
+      "Improved prompting for detailed explanations"
+    ],
+    description: "Aggregates multiple CSV rows per researcher into single author records with enhanced reasoning"
   });
 });
 
@@ -374,9 +404,13 @@ app.get("/api/health", (req, res) => {
   res.status(200).json({ 
     status: "healthy", 
     timestamp: new Date().toISOString(),
-    version: "3.0.0",
+    version: "3.1.0",
     index: AZURE_SEARCH_INDEX,
-    feature: "Data aggregation enabled"
+    features: [
+      "Data aggregation enabled",
+      "Enhanced reason generation with 3000 max_tokens",
+      "Detailed 500-word explanations per reason"
+    ]
   });
 });
 
@@ -398,15 +432,15 @@ app.get("/api/env-check", (req, res) => {
     searchIndex: AZURE_SEARCH_INDEX,
     dataModel: {
       input: "CSV rows per paper",
-      processing: "Aggregate by author_name",
-      output: "Author-level statistics"
+      processing: "Aggregate by author_name + Enhanced AI reasoning",
+      output: "Author-level statistics with detailed 500-word reasons"
     }
   });
 });
 
 // ✅ メイン検索エンドポイント（集約対応版）
 app.post("/api/search", async (req, res) => {
-  console.log("🔍 Aggregated search endpoint called");
+  console.log("🔍 Enhanced aggregated search endpoint called");
   const { query, university, research_field } = req.body;
   
   if (!query || query.trim() === "") {
@@ -414,7 +448,7 @@ app.post("/api/search", async (req, res) => {
   }
 
   try {
-    console.log(`🔍 集約検索開始: "${query}"`);
+    console.log(`🔍 詳細理由生成版検索開始: "${query}"`);
     console.log(`   - 所属フィルター: "${university || 'All'}"`);
     console.log(`   - 分野フィルター: "${research_field || 'All'}"`);
     
@@ -432,7 +466,7 @@ app.post("/api/search", async (req, res) => {
       return res.status(200).json([]);
     }
 
-    // Step 4: データ整形 + AI理由生成
+    // Step 4: データ整形 + AI理由生成（詳細版）
     const results = await Promise.all(
       aggregatedDocuments.slice(0, 10).map(async (doc) => {
         const formatted = formatAggregatedResearcherData(doc);
@@ -441,7 +475,7 @@ app.post("/api/search", async (req, res) => {
       })
     );
 
-    console.log(`✅ 集約検索完了: ${results.length}件の研究者`);
+    console.log(`✅ 詳細理由生成版検索完了: ${results.length}件の研究者`);
     
     // 結果確認
     results.forEach((result, index) => {
@@ -450,12 +484,13 @@ app.post("/api/search", async (req, res) => {
       console.log(`   - 集約被引用数: ${result.cited_by_count}`);
       console.log(`   - h指数: ${result.h_index}`);
       console.log(`   - 分野: ${result.classified_field}`);
+      console.log(`   - 理由1文字数: ${result.reason_body_1?.length || 0}`);
     });
     
     res.status(200).json(results);
     
   } catch (error) {
-    console.error("❌ 集約検索エラー:", error);
+    console.error("❌ 詳細理由生成版検索エラー:", error);
     res.status(500).json({ 
       error: "検索中にエラーが発生しました",
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -473,10 +508,11 @@ app.use((err, req, res, next) => {
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server started on port ${PORT}`);
-  console.log(`🎯 Feature: Research data aggregation by author`);
-  console.log(`📊 Data flow: CSV rows → Author grouping → Aggregated metrics`);
+  console.log(`✅ Enhanced Reason Generation Server started on port ${PORT}`);
+  console.log(`🎯 Features: Data aggregation + Enhanced AI reasoning (500+ words per reason)`);
+  console.log(`📊 Data flow: CSV rows → Author grouping → Detailed aggregated metrics + AI reasons`);
   console.log(`📋 Index: ${AZURE_SEARCH_INDEX}`);
+  console.log(`💡 AI: Enhanced reasoning with 3000 max_tokens for detailed explanations`);
 });
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
