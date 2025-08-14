@@ -16,3 +16,15 @@ AzureCLI.msi
 # Build
 dist/
 build/
+
+# Azure deployment files
+.deployment
+.nvmrc
+
+# Log files and deployment artifacts
+app-logs/
+LogFiles/
+*.backup
+
+# Package lock (keep only one)
+# package-lock.json
