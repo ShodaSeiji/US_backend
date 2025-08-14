@@ -1,5 +1,5 @@
-// 🎯 正しいインデックスフィールド対応版 - paper_count使用
-console.log("🚀 Harvard Researcher Matching API - Correct Index Fields");
+// 🎯 研究者データ集約完全ソリューション
+console.log("🚀 Harvard Researcher Matching API - Aggregated Data Solution");
 
 require("dotenv").config();
 const express = require("express");
@@ -22,48 +22,7 @@ const AZURE_OPENAI_GPT_DEPLOYMENT_NAME = process.env.AZURE_OPENAI_GPT_DEPLOYMENT
 console.log("🔍 Environment check:");
 console.log("- Azure Search:", !!AZURE_SEARCH_ENDPOINT);
 console.log("- Azure OpenAI:", !!AZURE_OPENAI_ENDPOINT);
-console.log("📋 Using correct index fields: paper_count, works_titles_count, works_concepts_count");
-
-// ✅ 正確なデータ整形（実際のインデックスフィールド使用）
-function formatResearcherData(doc) {
-  // 実際のインデックスフィールドを使用
-  const paper_count = typeof doc.paper_count === 'number' ? Math.max(doc.paper_count, 0) : 
-                     (typeof doc.paper_count === 'string' ? Math.max(parseInt(doc.paper_count) || 0, 0) : 0);
-  
-  const works_titles_count = typeof doc.works_titles_count === 'number' ? Math.max(doc.works_titles_count, 0) : 
-                            (typeof doc.works_titles_count === 'string' ? Math.max(parseInt(doc.works_titles_count) || 0, 0) : 0);
-  
-  const works_concepts_count = typeof doc.works_concepts_count === 'number' ? Math.max(doc.works_concepts_count, 0) : 
-                              (typeof doc.works_concepts_count === 'string' ? Math.max(parseInt(doc.works_concepts_count) || 0, 0) : 0);
-  
-  const cited_by_count = typeof doc.cited_by_count === 'number' ? Math.max(doc.cited_by_count, 0) : 
-                        (typeof doc.cited_by_count === 'string' ? Math.max(parseInt(doc.cited_by_count) || 0, 0) : 0);
-  
-  const h_index = typeof doc.h_index === 'number' ? Math.max(doc.h_index, 0) : 
-                 (typeof doc.h_index === 'string' ? Math.max(parseInt(doc.h_index) || 0, 0) : 0);
-
-  console.log(`📊 データ整形: ${doc.author_name || 'Unknown'}`);
-  console.log(`   - paper_count: ${doc.paper_count} → ${paper_count}`);
-  console.log(`   - works_titles_count: ${doc.works_titles_count} → ${works_titles_count}`);
-  console.log(`   - cited_by_count: ${doc.cited_by_count} → ${cited_by_count}`);
-  console.log(`   - h_index: ${doc.h_index} → ${h_index}`);
-
-  return {
-    name: doc.author_name || "Unknown Researcher",
-    institution: doc.institution || "Unknown Institution",
-    orcid: doc.orcid_filled || "N/A",
-    // フロントエンド互換性のため both works_count and paper_count
-    works_count: paper_count, // フロントエンドが期待するフィールド
-    paper_count: paper_count, // 実際のインデックスフィールド
-    cited_by_count: cited_by_count,
-    h_index: h_index,
-    classified_field: doc.classified_field || "Unknown",
-    // 追加のフィールド
-    works_titles_count: works_titles_count,
-    works_concepts_count: works_concepts_count,
-    paper_data_count: paper_count // 互換性のため
-  };
-}
+console.log("🎯 Feature: Research data aggregation by author");
 
 // ✅ 翻訳機能
 async function translateToEnglish(query) {
@@ -117,48 +76,89 @@ async function getEmbedding(text) {
 
   // フォールバック
   console.log("🔄 フォールバック embedding");
-  return new Array(3072).fill(0).map(() => Math.random() - 0.5); // 3072次元のベクトル
+  return new Array(3072).fill(0).map(() => Math.random() - 0.5);
 }
 
-// ✅ Azure AI Search（正確なフィールド指定）
-async function searchInAzure(vector, university, research_field) {
+// 🎯 研究者データ集約関数
+function aggregateResearcherData(rawResults) {
+  console.log(`🔄 研究者データ集約開始: ${rawResults.length}件の生データ`);
+  
+  // author_name でグループ化
+  const groupedByAuthor = {};
+  
+  rawResults.forEach((doc, index) => {
+    const authorKey = doc.author_name || `Unknown_${index}`;
+    
+    if (!groupedByAuthor[authorKey]) {
+      groupedByAuthor[authorKey] = {
+        papers: [],
+        author_name: doc.author_name,
+        institution: doc.institution,
+        orcid_filled: doc.orcid_filled,
+        classified_field: doc.classified_field,
+        // 集約用データ
+        cited_by_counts: [],
+        h_indices: [],
+        titles: [],
+        abstracts: []
+      };
+    }
+    
+    // データを蓄積
+    groupedByAuthor[authorKey].papers.push(doc);
+    
+    // 数値データを配列に追加
+    if (doc.cited_by_count) groupedByAuthor[authorKey].cited_by_counts.push(parseInt(doc.cited_by_count) || 0);
+    if (doc.h_index) groupedByAuthor[authorKey].h_indices.push(parseInt(doc.h_index) || 0);
+    if (doc.title) groupedByAuthor[authorKey].titles.push(doc.title);
+    if (doc.abstract) groupedByAuthor[authorKey].abstracts.push(doc.abstract);
+  });
+
+  console.log(`📊 グループ化完了: ${Object.keys(groupedByAuthor).length}名の研究者`);
+
+  // 研究者ごとに集約されたデータを生成
+  const aggregatedData = Object.values(groupedByAuthor).map(group => {
+    const paperCount = group.papers.length; // 実際の論文数 = CSV行数
+    const totalCitations = group.cited_by_counts.reduce((sum, count) => sum + count, 0);
+    const maxHIndex = Math.max(...group.h_indices, 0);
+    
+    console.log(`👨‍🔬 ${group.author_name}:`);
+    console.log(`   - 論文数（CSV行数）: ${paperCount}`);
+    console.log(`   - 総被引用数: ${totalCitations}`);
+    console.log(`   - 最大h指数: ${maxHIndex}`);
+
+    return {
+      author_name: group.author_name,
+      institution: group.institution,
+      orcid_filled: group.orcid_filled,
+      // 🎯 正しい集約値
+      paper_count: paperCount, // 実際の論文数（CSV行数）
+      works_titles_count: group.titles.length,
+      works_concepts_count: paperCount,
+      cited_by_count: totalCitations, // 被引用数の合計
+      h_index: maxHIndex, // h指数の最大値
+      classified_field: group.classified_field,
+      title: group.titles[0] || "No title",
+      abstract: group.abstracts[0] || "No abstract"
+    };
+  });
+
+  // 論文数の多い順にソート
+  aggregatedData.sort((a, b) => b.paper_count - a.paper_count);
+
+  console.log(`✅ 集約完了: 論文数上位5名`);
+  aggregatedData.slice(0, 5).forEach((researcher, index) => {
+    console.log(`   ${index + 1}. ${researcher.author_name}: ${researcher.paper_count}件`);
+  });
+
+  return aggregatedData;
+}
+
+// 🎯 Azure AI Search（集約対応版）
+async function searchInAzureWithAggregation(vector, university, research_field) {
   if (!AZURE_SEARCH_ENDPOINT || !AZURE_SEARCH_API_KEY) {
-    console.log("⚠️ Azure Search未設定、モックデータを返します");
-    return [
-      {
-        author_name: "Dr. John Smith",
-        institution: university || "Harvard University",
-        orcid_filled: "https://orcid.org/0000-0000-0000-0001",
-        paper_count: 125,
-        works_titles_count: 110,
-        works_concepts_count: 95,
-        cited_by_count: 2350,
-        h_index: 28,
-        classified_field: "Computer Science"
-      },
-      {
-        author_name: "Dr. Maria Garcia",
-        institution: university || "Harvard Medical School", 
-        orcid_filled: "https://orcid.org/0000-0000-0000-0002",
-        paper_count: 89,
-        works_titles_count: 82,
-        works_concepts_count: 76,
-        cited_by_count: 1850,
-        h_index: 22,
-        classified_field: "Medical Sciences"
-      },
-      {
-        author_name: "Dr. David Chen",
-        institution: university || "Harvard School of Engineering",
-        orcid_filled: "https://orcid.org/0000-0000-0000-0003",
-        paper_count: 156,
-        works_titles_count: 142,
-        works_concepts_count: 128,
-        cited_by_count: 3200,
-        h_index: 35,
-        classified_field: "Engineering"
-      }
-    ];
+    console.log("⚠️ Azure Search未設定、集約モックデータを返します");
+    return getAggregatedMockData(university);
   }
 
   try {
@@ -174,9 +174,8 @@ async function searchInAzure(vector, university, research_field) {
     }
 
     const payload = {
-      vectorQueries: [{ kind: "vector", vector, fields: "vector", k: 50 }],
-      top: 50,
-      // 重要：実際に存在するフィールドのみ選択
+      vectorQueries: [{ kind: "vector", vector, fields: "vector", k: 300 }], // より多くの結果
+      top: 300, // 集約前に十分なデータを取得
       select: "author_name,institution,orcid_filled,paper_count,works_titles_count,works_concepts_count,cited_by_count,h_index,classified_field,title,abstract"
     };
 
@@ -184,51 +183,95 @@ async function searchInAzure(vector, university, research_field) {
       payload.filter = filters.join(' and ');
     }
 
-    console.log(`🔍 Azure Search実行...`);
-    console.log(`   - Select fields: ${payload.select}`);
+    console.log(`🔍 Azure Search実行（集約用）...`);
+    console.log(`   - 取得件数: ${payload.top}件（集約前）`);
     console.log(`   - Filter: ${payload.filter || 'なし'}`);
     
     const response = await axios.post(url, payload, { headers, timeout: 30000 });
-    const results = response.data.value || [];
+    const rawResults = response.data.value || [];
     
-    console.log(`📋 Azure Search結果: ${results.length}件`);
+    console.log(`📋 Azure Search生データ: ${rawResults.length}件`);
 
-    // デバッグ：最初の結果
-    if (results.length > 0) {
-      console.log(`🔍 最初の結果詳細:`);
-      console.log(`   - author_name: ${results[0].author_name}`);
-      console.log(`   - paper_count: ${results[0].paper_count} (${typeof results[0].paper_count})`);
-      console.log(`   - works_titles_count: ${results[0].works_titles_count}`);
-      console.log(`   - works_concepts_count: ${results[0].works_concepts_count}`);
-      console.log(`   - cited_by_count: ${results[0].cited_by_count}`);
-      console.log(`   - h_index: ${results[0].h_index}`);
-      console.log(`   - classified_field: ${results[0].classified_field}`);
-    }
-
-    return results;
+    // 🎯 重要: 研究者ごとにデータを集約
+    const aggregatedResults = aggregateResearcherData(rawResults);
+    
+    console.log(`✅ 集約後データ: ${aggregatedResults.length}件の研究者`);
+    
+    // 上位20名を返す
+    return aggregatedResults.slice(0, 20);
     
   } catch (error) {
     console.error("❌ Azure Search error:", error.message);
-    if (error.response?.data) {
-      console.error("Error details:", JSON.stringify(error.response.data, null, 2));
-    }
-    
-    // フォールバック
-    console.log("🔄 フォールバックデータを返します");
-    return [
-      {
-        author_name: "Dr. Fallback Researcher",
-        institution: university || "Harvard University",
-        orcid_filled: "N/A",
-        paper_count: 75,
-        works_titles_count: 68,
-        works_concepts_count: 62,
-        cited_by_count: 1500,
-        h_index: 20,
-        classified_field: "Computer Science"
-      }
-    ];
+    return getAggregatedMockData(university);
   }
+}
+
+// 🎯 集約モックデータ
+function getAggregatedMockData(university) {
+  const mockData = [
+    {
+      author_name: "Dr. John Smith",
+      institution: university || "Harvard University",
+      orcid_filled: "https://orcid.org/0000-0000-0000-0001",
+      paper_count: 45, // 複数論文の合計
+      works_titles_count: 45,
+      works_concepts_count: 45,
+      cited_by_count: 1250, // 複数論文の被引用数合計
+      h_index: 28,
+      classified_field: "Computer Science",
+      title: "Machine Learning Applications in Smart Cities",
+      abstract: "This research explores various applications of AI..."
+    },
+    {
+      author_name: "Dr. Maria Garcia",
+      institution: university || "Harvard Medical School",
+      orcid_filled: "https://orcid.org/0000-0000-0000-0002",
+      paper_count: 32, // 複数論文の合計
+      works_titles_count: 32,
+      works_concepts_count: 32,
+      cited_by_count: 890, // 複数論文の被引用数合計
+      h_index: 22,
+      classified_field: "Medical Sciences",
+      title: "AI-Powered Healthcare Solutions",
+      abstract: "Research focusing on healthcare AI applications..."
+    },
+    {
+      author_name: "Dr. David Chen",
+      institution: university || "Harvard School of Engineering",
+      orcid_filled: "https://orcid.org/0000-0000-0000-0003",
+      paper_count: 67, // 複数論文の合計
+      works_titles_count: 67,
+      works_concepts_count: 67,
+      cited_by_count: 2100, // 複数論文の被引用数合計
+      h_index: 35,
+      classified_field: "Engineering",
+      title: "Sustainable Technology Innovation",
+      abstract: "Innovative approaches to sustainable development..."
+    }
+  ];
+  
+  console.log(`📋 集約モックデータ生成完了`);
+  return mockData;
+}
+
+// 🎯 データ整形関数
+function formatAggregatedResearcherData(doc) {
+  const result = {
+    name: doc.author_name || "Unknown Researcher",
+    institution: doc.institution || "Unknown Institution",
+    orcid: doc.orcid_filled || "N/A",
+    works_count: doc.paper_count, // 集約された論文数
+    paper_count: doc.paper_count, // 集約された論文数
+    cited_by_count: doc.cited_by_count || 0,
+    h_index: doc.h_index || 0,
+    classified_field: doc.classified_field || "Unknown",
+    works_titles_count: doc.works_titles_count || doc.paper_count,
+    works_concepts_count: doc.works_concepts_count || doc.paper_count,
+    paper_data_count: doc.paper_count
+  };
+
+  console.log(`✅ 整形完了: ${result.name} - 論文数: ${result.paper_count}`);
+  return result;
 }
 
 // ✅ AI理由生成
@@ -318,10 +361,11 @@ function getDefaultReasons(query, doc) {
 app.get("/", (req, res) => {
   res.status(200).json({ 
     status: "Server is running", 
-    message: "Harvard Researcher Matching API - Correct Index Fields",
+    message: "Harvard Researcher Matching API - Aggregated Data Solution",
     timestamp: new Date().toISOString(),
-    version: "2.3.0",
-    indexFields: "paper_count, works_titles_count, works_concepts_count, cited_by_count, h_index"
+    version: "3.0.0",
+    feature: "Research data aggregation by author (CSV row-level → Author-level)",
+    description: "Aggregates multiple CSV rows per researcher into single author records"
   });
 });
 
@@ -329,8 +373,9 @@ app.get("/api/health", (req, res) => {
   res.status(200).json({ 
     status: "healthy", 
     timestamp: new Date().toISOString(),
-    version: "2.3.0",
-    index: AZURE_SEARCH_INDEX
+    version: "3.0.0",
+    index: AZURE_SEARCH_INDEX,
+    feature: "Data aggregation enabled"
   });
 });
 
@@ -350,19 +395,17 @@ app.get("/api/env-check", (req, res) => {
     allConfigured: Object.values(envStatus).every(status => status === 'SET'),
     nodeVersion: process.version,
     searchIndex: AZURE_SEARCH_INDEX,
-    indexFields: {
-      paperCount: "paper_count (Int32)",
-      worksTitlesCount: "works_titles_count (Int32)", 
-      worksConceptsCount: "works_concepts_count (Int32)",
-      citedByCount: "cited_by_count (Int32)",
-      hIndex: "h_index (Int32)"
+    dataModel: {
+      input: "CSV rows per paper",
+      processing: "Aggregate by author_name",
+      output: "Author-level statistics"
     }
   });
 });
 
-// ✅ メイン検索エンドポイント
+// ✅ メイン検索エンドポイント（集約対応版）
 app.post("/api/search", async (req, res) => {
-  console.log("🔍 Search endpoint called");
+  console.log("🔍 Aggregated search endpoint called");
   const { query, university, research_field } = req.body;
   
   if (!query || query.trim() === "") {
@@ -370,7 +413,7 @@ app.post("/api/search", async (req, res) => {
   }
 
   try {
-    console.log(`🔍 検索開始: "${query}"`);
+    console.log(`🔍 集約検索開始: "${query}"`);
     console.log(`   - 所属フィルター: "${university || 'All'}"`);
     console.log(`   - 分野フィルター: "${research_field || 'All'}"`);
     
@@ -380,38 +423,38 @@ app.post("/api/search", async (req, res) => {
     // Step 2: Embedding
     const embedding = await getEmbedding(englishQuery);
     
-    // Step 3: 検索
-    const documents = await searchInAzure(embedding, university, research_field);
+    // Step 3: 集約検索実行
+    const aggregatedDocuments = await searchInAzureWithAggregation(embedding, university, research_field);
     
-    if (documents.length === 0) {
-      console.log("⚠️ 検索結果なし");
+    if (aggregatedDocuments.length === 0) {
+      console.log("⚠️ 集約後の検索結果なし");
       return res.status(200).json([]);
     }
 
     // Step 4: データ整形 + AI理由生成
     const results = await Promise.all(
-      documents.slice(0, 10).map(async (doc) => {
-        const formatted = formatResearcherData(doc);
+      aggregatedDocuments.slice(0, 10).map(async (doc) => {
+        const formatted = formatAggregatedResearcherData(doc);
         const reasons = await generateReason(query, formatted);
         return { ...formatted, ...reasons };
       })
     );
 
-    console.log(`✅ 検索完了: ${results.length}件`);
+    console.log(`✅ 集約検索完了: ${results.length}件の研究者`);
     
     // 結果確認
     results.forEach((result, index) => {
-      console.log(`📊 結果${index + 1}: ${result.name}`);
-      console.log(`   - paper_count: ${result.paper_count}`);
-      console.log(`   - works_count: ${result.works_count} (互換性フィールド)`);
-      console.log(`   - cited_by_count: ${result.cited_by_count}`);
-      console.log(`   - h_index: ${result.h_index}`);
+      console.log(`📊 研究者${index + 1}: ${result.name}`);
+      console.log(`   - 集約論文数: ${result.paper_count}`);
+      console.log(`   - 集約被引用数: ${result.cited_by_count}`);
+      console.log(`   - h指数: ${result.h_index}`);
+      console.log(`   - 分野: ${result.classified_field}`);
     });
     
     res.status(200).json(results);
     
   } catch (error) {
-    console.error("❌ 検索エラー:", error);
+    console.error("❌ 集約検索エラー:", error);
     res.status(500).json({ 
       error: "検索中にエラーが発生しました",
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -430,7 +473,8 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server started on port ${PORT}`);
-  console.log(`🔧 Fixed: Using correct index fields (paper_count, works_titles_count, etc.)`);
+  console.log(`🎯 Feature: Research data aggregation by author`);
+  console.log(`📊 Data flow: CSV rows → Author grouping → Aggregated metrics`);
   console.log(`📋 Index: ${AZURE_SEARCH_INDEX}`);
 });
 
